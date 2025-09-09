@@ -11,6 +11,7 @@ import re
 from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
 import logging
+from .intent_classifier import IntentClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,9 @@ class ChatMessageProcessor:
     """Processes chat messages into structured intents with analysis"""
     
     def __init__(self):
+        # Initialize the hybrid IntentClassifier
+        self.intent_classifier = IntentClassifier()
+        
         self.fraud_indicators = [
             'scam', 'fraud', 'suspicious', 'bank', 'verify', 'urgent', 'immediately',
             'account', 'security', 'identity', 'confirm', 'authorize', 'password',
@@ -26,6 +30,7 @@ class ChatMessageProcessor:
             'unusual activity', 'locked account', 'verify identity'
         ]
         
+        # Keep legacy patterns as fallback
         self.intent_patterns = {
             'fraud_detection': {
                 'keywords': ['fraud', 'scam', 'suspicious', 'fake', 'imposter', 'phishing'],
@@ -154,7 +159,31 @@ class ChatMessageProcessor:
         return analysis
     
     async def classify_intent(self, chat_message: str) -> Dict[str, Any]:
-        """Classify the intent type based on chat content"""
+        """Classify the intent type using the hybrid IntentClassifier"""
+        
+        try:
+            # Use the hybrid IntentClassifier
+            classification_result = await self.intent_classifier.classify_intent(chat_message)
+            
+            return {
+                "primary_intent": classification_result["intent_type"],
+                "confidence": classification_result["confidence"],
+                "urgency": classification_result["urgency"],
+                "entities": classification_result["entities"],
+                "method_used": classification_result.get("method_used", "unknown"),
+                "fallback_used": classification_result.get("fallback_used", False),
+                "processing_time_ms": classification_result.get("processing_time_ms", 0),
+                "llm_reasoning": classification_result.get("analysis_details", {}).get("llm_reasoning"),
+                "full_classification": classification_result
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in hybrid classification, falling back to simple pattern matching: {e}")
+            # Fallback to simple pattern matching
+            return await self._classify_intent_fallback(chat_message)
+    
+    async def _classify_intent_fallback(self, chat_message: str) -> Dict[str, Any]:
+        """Fallback classification using simple pattern matching"""
         
         message_lower = chat_message.lower()
         scores = {}
@@ -181,7 +210,9 @@ class ChatMessageProcessor:
             "primary_intent": best_match[0],
             "confidence": best_match[1]["score"],
             "keywords_matched": best_match[1]["keywords_found"],
-            "all_scores": scores
+            "all_scores": scores,
+            "method_used": "fallback_pattern",
+            "fallback_used": True
         }
     
     async def extract_entities(self, chat_message: str) -> Dict[str, List[str]]:

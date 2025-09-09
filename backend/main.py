@@ -7,6 +7,45 @@ import asyncio
 from typing import List, Dict, Any
 from datetime import datetime
 import uuid
+import logging
+import sys
+
+# Configure logging to output to console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+# Create logger for main module
+main_logger = logging.getLogger(__name__)
+
+# Set root logger and all child loggers to INFO level
+logging.getLogger().setLevel(logging.INFO)
+
+# Explicitly configure all our module loggers
+logger_names = [
+    'intent_analysis.workflow_orchestrator',
+    'intent_analysis.chat_processor', 
+    'intent_analysis.intent_classifier',
+    'intent_analysis.analyzers.semantic_analyzer',
+    'intent_analysis.patterns.pattern_matcher',
+    'agents.base.base_agent',
+    'agents.agent_factory',
+    'agents.specialized',
+    'workflow.engines.langgraph_orchestrator',
+    'workflow.templates.workflow_templates',
+    'api.database.database',
+    'camara_apis.main',
+    'mcp'
+]
+
+for logger_name in logger_names:
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = True
 
 from api.routers.tmf921_router import router as tmf921_router
 from intent_analysis import ChatMessageProcessor, WorkflowOrchestrator
@@ -82,9 +121,14 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+print("Initializing components...")
+
 chat_processor = ChatMessageProcessor()
 workflow_orchestrator = WorkflowOrchestrator()
 intent_db = IntentDatabase()
+
+print("Components initialized successfully")
+main_logger.info("Application components initialized successfully")
 
 
 @app.websocket("/ws/chat")
@@ -120,7 +164,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.broadcast(processing_message)
                 
                 # Process chat message into intent with analysis
+                main_logger.info(f"Processing chat message from user {user_id}: {chat_content[:50]}...")
                 processing_result = await chat_processor.process_chat_message(chat_content, user_id)
+                main_logger.info(f"Chat processing result status: {processing_result.get('status')}")
                 
                 if processing_result["status"] == "success":
                     # Save intent to database
@@ -149,6 +195,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         await manager.broadcast(workflow_message)
                         
                         # Execute workflow asynchronously
+                        main_logger.info(f"Starting workflow execution for intent {intent_data['id']}")
                         asyncio.create_task(
                             execute_chat_workflow(
                                 created_intent, 
@@ -196,8 +243,12 @@ async def execute_chat_workflow(intent: Dict[str, Any], workflow_plan: Dict[str,
     """Execute workflow for chat-originated intent and send real-time updates"""
     
     try:
+        main_logger.info(f"Inside execute_chat_workflow for intent {intent.get('id')}")
+        main_logger.info(f"Workflow plan: {workflow_plan.get('workflow_type')}")
         # Execute the workflow
+        main_logger.info("Calling workflow_orchestrator.execute_workflow...")
         workflow_result = await workflow_orchestrator.execute_workflow(intent, workflow_plan)
+        main_logger.info(f"Workflow result: {workflow_result.get('status')}")
         
         if workflow_result["status"] == "success":
             # Send workflow completion message

@@ -1,0 +1,46 @@
+# Intent Classification Configuration
+# ==================================
+
+classification:
+  # Classification mode: "pattern", "llm", "hybrid"
+  mode: "hybrid"
+  
+  # LLM Configuration
+  llm:
+    # Provider: "groq" (add more providers later)
+    provider: "groq"
+    
+    # Groq configuration
+    model: "llama-3.1-8b-instant"  # Fast model for classification
+    api_key: null  # Set via environment variable GROQ_API_KEY
+    base_url: "https://api.groq.com/openai/v1"
+    timeout: 10  # seconds
+    max_tokens: 200
+    temperature: 0.1  # Low temperature for consistent classification
+    
+  # Pattern matching configuration
+  pattern:
+    patterns_file: "intent_analysis/patterns/intent_patterns.yaml"
+    fallback_enabled: true
+    
+  # Hybrid mode configuration
+  hybrid:
+    primary: "llm"  # Primary classification method: "llm" or "pattern"
+    fallback: "pattern"  # Fallback method when primary fails
+    confidence_threshold: 0.7  # Switch to fallback if confidence < threshold
+    
+    # Fallback triggers
+    fallback_on_timeout: true
+    fallback_on_error: true
+    fallback_on_low_confidence: true
+
+# Development/Testing overrides
+development:
+  # Force pattern mode if no API key is available
+  force_pattern_without_api_key: true
+  
+  # Enable debug logging
+  debug_classification: false
+  
+  # Test mode (for unit tests)
+  test_mode: false

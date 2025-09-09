@@ -13,6 +13,10 @@ from typing import Dict, Any, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+print(f"WorkflowOrchestrator logger name: {logger.name}")
+print(f"WorkflowOrchestrator logger level: {logger.level}")
+print(f"WorkflowOrchestrator logger handlers: {logger.handlers}")
+print(f"WorkflowOrchestrator logger propagate: {logger.propagate}")
 
 
 class WorkflowOrchestrator:
@@ -24,6 +28,8 @@ class WorkflowOrchestrator:
         
     async def execute_workflow(self, intent: Dict[str, Any], workflow_plan: Dict[str, Any]) -> Dict[str, Any]:
         """Execute workflow based on plan"""
+        
+        logger.info(f"WorkflowOrchestrator: Starting workflow execution for intent {intent['id']}")
         
         workflow_id = f"wf_{intent['id'][:8]}_{datetime.utcnow().strftime('%H%M%S')}"
         
@@ -68,9 +74,13 @@ class WorkflowOrchestrator:
     async def _execute_fraud_detection_workflow(self, intent: Dict[str, Any], workflow_state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute fraud detection workflow"""
         
+        logger.info("Starting fraud detection workflow execution")
+        
         # Extract entities from intent analysis
         metadata = intent.get("metadata", {}).get("analysis", {})
         entities = metadata.get("entities_found", {})
+        
+        logger.info(f"Extracted entities: {entities}")
         
         # Get phone numbers from entities or use default for demo
         phone_numbers = entities.get("phone_numbers", [])
@@ -79,40 +89,50 @@ class WorkflowOrchestrator:
         results = {}
         
         # Step 1: SIM Swap Check
+        logger.info(f"Step 1: Starting SIM swap check for {customer_phone}")
         await self._update_step_status(workflow_state, "sim_swap_check", "executing")
         sim_swap_result = await self._call_sim_swap_api(customer_phone)
         results["sim_swap"] = sim_swap_result
         await self._update_step_status(workflow_state, "sim_swap_check", "completed")
         workflow_state["progress"] = 20
+        logger.info("Step 1: SIM swap check completed")
         
         # Step 2: Device Location Analysis
+        logger.info(f"Step 2: Starting Device Location check for {customer_phone}")
         await self._update_step_status(workflow_state, "device_location_analysis", "executing")
         location_result = await self._call_location_api(customer_phone)
         results["location"] = location_result
         await self._update_step_status(workflow_state, "device_location_analysis", "completed")
         workflow_state["progress"] = 40
+        logger.info("Step 2: Device Location check completed")
         
         # Step 3: Identity Verification
+        logger.info(f"Step 3: Starting Identity Verification for {customer_phone}")
         await self._update_step_status(workflow_state, "identity_verification", "executing")
         kyc_result = await self._call_kyc_api(customer_phone, "Customer Name")
         results["kyc_verification"] = kyc_result
         await self._update_step_status(workflow_state, "identity_verification", "completed")
         workflow_state["progress"] = 60
+        logger.info("Step 3: Identity Verification completed")
         
         # Step 4: Communication Analysis
+        logger.info(f"Step 4: Starting Communication Analysis for {customer_phone}")
         await self._update_step_status(workflow_state, "communication_analysis", "executing")
         chat_text = json.loads(intent["expression"]["expressionValue"])["rawInput"]
         scam_result = await self._call_scam_signal_api(customer_phone, chat_text)
         results["scam_analysis"] = scam_result
         await self._update_step_status(workflow_state, "communication_analysis", "completed")
         workflow_state["progress"] = 80
+        logger.info("Step 4: Communication Analysis completed")
         
         # Step 5: Risk Assessment
+        logger
         await self._update_step_status(workflow_state, "risk_assessment", "executing")
         risk_assessment = await self._calculate_overall_risk(results)
         results["risk_assessment"] = risk_assessment
         await self._update_step_status(workflow_state, "risk_assessment", "completed")
         workflow_state["progress"] = 100
+        logger.info("Step 5: Risk Assessment completed")
         
         # Generate recommendations
         recommendations = await self._generate_recommendations(results, intent)

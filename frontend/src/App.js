@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './index.css';
 
-const WEBSOCKET_URL = 'ws://localhost:8002/ws/chat';
-const API_BASE_URL = 'http://localhost:8002';
+const WEBSOCKET_URL = 'ws://localhost:8004/ws/chat';
+const API_BASE_URL = 'http://localhost:8004';
 
 function App() {
   const [messages, setMessages] = useState([]);

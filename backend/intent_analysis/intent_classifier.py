@@ -2,17 +2,24 @@ from typing import Dict, List, Any, Optional, Tuple
 import logging
 from datetime import datetime
 import json
+import time
+import asyncio
 
 from .analyzers.semantic_analyzer import SemanticAnalyzer
 from .patterns.pattern_matcher import PatternMatcher
+from .llm.models import ClassificationResult, ClassificationMethod, UrgencyLevel
+from .llm.providers.groq_provider import GroqProvider
+from .llm.providers.base_provider import LLMProviderError
+from config.config_loader import config_loader
 
 
 class IntentClassifier:
     """
-    Comprehensive intent classification engine that combines:
-    - Semantic analysis using spaCy NLP
+    Hybrid intent classification engine that supports:
+    - LLM-based classification using Groq API
     - Pattern-based matching using YAML rules
-    - Confidence scoring and validation
+    - Semantic analysis using spaCy NLP (legacy support)
+    - Hybrid mode with intelligent fallback
     - TMF 921A compliant output generation
     """
     
@@ -20,11 +27,14 @@ class IntentClassifier:
                  patterns_file: Optional[str] = None):
         self.logger = logging.getLogger(__name__)
         
-        # Initialize components
+        # Load configuration
+        self.config = config_loader.load_classification_config()
+        self.classification_mode = config_loader.get_classification_mode()
+        
+        # Initialize components based on mode
         try:
-            self.semantic_analyzer = SemanticAnalyzer(spacy_model)
-            self.pattern_matcher = PatternMatcher(patterns_file)
-            self.logger.info("Intent classifier initialized successfully")
+            self._init_components(spacy_model, patterns_file)
+            self.logger.info(f"Intent classifier initialized successfully in {self.classification_mode} mode")
         except Exception as e:
             self.logger.error(f"Failed to initialize intent classifier: {e}")
             raise
@@ -42,9 +52,40 @@ class IntentClassifier:
             'pattern_matching': 0.4
         }
     
-    def classify_intent(self, text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _init_components(self, spacy_model: str, patterns_file: Optional[str]):
+        """Initialize classification components based on configuration"""
+        
+        # Always initialize pattern matcher as fallback
+        self.pattern_matcher = PatternMatcher(patterns_file)
+        
+        # Initialize semantic analyzer if needed (for legacy pattern mode)
+        if self.classification_mode in ['pattern', 'hybrid']:
+            try:
+                self.semantic_analyzer = SemanticAnalyzer(spacy_model)
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize semantic analyzer: {e}")
+                self.semantic_analyzer = None
+        
+        # Initialize LLM provider if needed
+        if self.classification_mode in ['llm', 'hybrid']:
+            try:
+                llm_config = config_loader.get_llm_config()
+                self.llm_provider = GroqProvider(llm_config)
+                
+                if not self.llm_provider.is_available():
+                    self.logger.warning("LLM provider not available, falling back to pattern mode")
+                    self.classification_mode = 'pattern'
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize LLM provider: {e}")
+                self.llm_provider = None
+                if self.classification_mode == 'llm':
+                    self.classification_mode = 'pattern'
+        else:
+            self.llm_provider = None
+    
+    async def classify_intent(self, text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Main classification method that combines semantic and pattern analysis
+        Main classification method with hybrid LLM/pattern support
         
         Args:
             text: Input text to classify
@@ -53,38 +94,193 @@ class IntentClassifier:
         Returns:
             Comprehensive classification result with intent type, confidence, and extracted data
         """
-        self.logger.info(f"Classifying intent for text: {text[:100]}...")
+        self.logger.info(f"Classifying intent ({self.classification_mode} mode) for text: {text[:100]}...")
+        start_time = time.time()
         
         try:
-            # Perform semantic analysis
-            semantic_result = self.semantic_analyzer.analyze(text)
+            if self.classification_mode == 'llm':
+                result = await self._classify_with_llm(text, context)
+            elif self.classification_mode == 'hybrid':
+                result = await self._classify_hybrid(text, context)
+            else:  # pattern mode
+                result = self._classify_with_pattern(text, context)
             
-            # Perform pattern matching
-            pattern_result = self.pattern_matcher.match_intent(text)
+            # Add processing time
+            result['processing_time_ms'] = int((time.time() - start_time) * 1000)
             
-            # Extract entities using both methods
-            semantic_entities = semantic_result.get('custom_entities', {})
-            pattern_entities = self.pattern_matcher.extract_entities(text)
+            self.logger.info(f"Classification complete: {result.get('intent_type')} "
+                           f"(confidence: {result.get('confidence', 0):.2f}) "
+                           f"in {result['processing_time_ms']}ms")
             
-            # Combine and score results
-            combined_result = self._combine_results(semantic_result, pattern_result)
-            
-            # Merge entity extractions
-            merged_entities = self._merge_entities(semantic_entities, pattern_entities)
-            
-            # Generate final classification
-            classification = self._generate_classification(
-                combined_result, merged_entities, text, context
-            )
-            
-            self.logger.info(f"Classification complete: {classification.get('intent_type')} "
-                           f"(confidence: {classification.get('confidence', 0):.2f})")
-            
-            return classification
+            return result
             
         except Exception as e:
             self.logger.error(f"Error during classification: {e}")
             return self._fallback_classification(text)
+    
+    async def _classify_with_llm(self, text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Classify using LLM only"""
+        try:
+            llm_response = await self.llm_provider.classify_intent(text, context)
+            
+            # Extract entities using pattern matcher as well for completeness
+            pattern_entities = self.pattern_matcher.extract_entities(text)
+            
+            # Merge LLM entities with pattern entities
+            merged_entities = self._merge_entities(llm_response.entities, pattern_entities)
+            
+            # Generate TMF 921A compliant result
+            return self._generate_classification_from_llm_response(
+                llm_response, merged_entities, text, context, ClassificationMethod.LLM
+            )
+            
+        except LLMProviderError as e:
+            self.logger.warning(f"LLM classification failed: {e}")
+            # Fallback to pattern classification
+            return self._classify_with_pattern(text, context, fallback_used=True)
+    
+    async def _classify_hybrid(self, text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Classify using hybrid approach (LLM primary, pattern fallback)"""
+        hybrid_config = config_loader.get_hybrid_config()
+        primary_method = hybrid_config.get('primary', 'llm')
+        fallback_method = hybrid_config.get('fallback', 'pattern')
+        confidence_threshold = hybrid_config.get('confidence_threshold', 0.7)
+        
+        try:
+            # Try primary method first
+            if primary_method == 'llm' and self.llm_provider and self.llm_provider.is_available():
+                llm_response = await self.llm_provider.classify_intent(text, context)
+                self.logger.info(f"LLM primary classification returned intent: {llm_response.intent_type} with confidence: {llm_response.confidence:.2f}")
+                # Check if LLM confidence is sufficient
+                if llm_response.confidence >= confidence_threshold:
+                    pattern_entities = self.pattern_matcher.extract_entities(text)
+                    merged_entities = self._merge_entities(llm_response.entities, pattern_entities)
+                    
+                    return self._generate_classification_from_llm_response(
+                        llm_response, merged_entities, text, context, ClassificationMethod.HYBRID
+                    )
+                else:
+                    self.logger.info(f"LLM confidence {llm_response.confidence:.2f} below threshold {confidence_threshold}, using fallback")
+            
+            # Use fallback method
+            if fallback_method == 'pattern':
+                return self._classify_with_pattern(text, context, fallback_used=True)
+            else:
+                # This shouldn't happen with current config, but handle gracefully
+                return self._classify_with_pattern(text, context, fallback_used=True)
+                
+        except LLMProviderError as e:
+            self.logger.warning(f"LLM classification failed in hybrid mode: {e}")
+            return self._classify_with_pattern(text, context, fallback_used=True)
+    
+    def _classify_with_pattern(self, text: str, context: Optional[Dict[str, Any]] = None, fallback_used: bool = False) -> Dict[str, Any]:
+        """Classify using pattern matching (with optional semantic analysis)"""
+        
+        # Perform pattern matching
+        pattern_result = self.pattern_matcher.match_intent(text)
+        pattern_entities = self.pattern_matcher.extract_entities(text)
+        
+        # Perform semantic analysis if available
+        semantic_entities = {}
+        if self.semantic_analyzer:
+            try:
+                semantic_result = self.semantic_analyzer.analyze(text)
+                semantic_entities = semantic_result.get('custom_entities', {})
+                
+                # Combine pattern and semantic results (legacy behavior)
+                combined_result = self._combine_results(semantic_result, pattern_result)
+            except Exception as e:
+                self.logger.warning(f"Semantic analysis failed: {e}")
+                combined_result = self._pattern_only_result(pattern_result)
+        else:
+            combined_result = self._pattern_only_result(pattern_result)
+        
+        # Merge entity extractions
+        merged_entities = self._merge_entities(semantic_entities, pattern_entities)
+        
+        # Generate final classification
+        classification = self._generate_classification(
+            combined_result, merged_entities, text, context
+        )
+        
+        # Mark method used and fallback status
+        classification['method_used'] = ClassificationMethod.HYBRID.value if fallback_used else ClassificationMethod.PATTERN.value
+        classification['fallback_used'] = fallback_used
+        
+        return classification
+    
+    def _pattern_only_result(self, pattern_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate result from pattern matching only"""
+        pattern_matches = pattern_result.get('matches', {})
+        
+        if pattern_matches:
+            # Find best pattern match
+            best_intent = max(pattern_matches.keys(), key=lambda x: pattern_matches[x].get('confidence', 0))
+            best_confidence = pattern_matches[best_intent].get('confidence', 0)
+        else:
+            best_intent = 'general_inquiry'
+            best_confidence = 0.5
+        
+        return {
+            'intent_type': best_intent,
+            'confidence': best_confidence,
+            'all_scores': {best_intent: {'confidence': best_confidence}},
+            'semantic_suggestion': None,
+            'pattern_best': pattern_result.get('best_match')
+        }
+    
+    def _generate_classification_from_llm_response(self, llm_response, entities: Dict[str, List[str]], 
+                                                 original_text: str, context: Optional[Dict[str, Any]], 
+                                                 method: ClassificationMethod) -> Dict[str, Any]:
+        """Generate classification from LLM response"""
+        
+        # Map LLM urgency to our urgency levels
+        urgency_mapping = {
+            'low': 'normal',
+            'medium': 'medium', 
+            'high': 'high'
+        }
+        urgency = urgency_mapping.get(llm_response.urgency, 'normal')
+        
+        # Generate TMF 921A expression
+        tmf_expression = self.pattern_matcher.generate_tmf_expression(
+            llm_response.intent_type, entities, urgency
+        )
+        
+        # Extract parameters for intent creation
+        parameters = self._extract_intent_parameters(
+            llm_response.intent_type, entities, urgency, original_text
+        )
+        
+        # Build comprehensive result
+        classification = {
+            'intent_type': llm_response.intent_type,
+            'confidence': llm_response.confidence,
+            'confidence_level': self._get_confidence_level(llm_response.confidence),
+            'urgency': urgency,
+            'entities': entities,
+            'parameters': parameters,
+            'tmf_expression': tmf_expression,
+            'analysis_details': {
+                'llm_reasoning': llm_response.reasoning,
+                'method_used': method.value,
+                'original_text': original_text,
+                'requires_human': llm_response.requires_human
+            },
+            'recommendations': self._generate_recommendations(
+                llm_response.intent_type, llm_response.confidence, entities
+            ),
+            'timestamp': datetime.utcnow().isoformat(),
+            'classifier_version': '2.0',
+            'method_used': method.value,
+            'fallback_used': False
+        }
+        
+        # Add context if provided
+        if context:
+            classification['context'] = context
+        
+        return classification
     
     def _combine_results(self, semantic_result: Dict[str, Any], 
                         pattern_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -240,6 +436,17 @@ class IntentClassifier:
         
         if entities.get('ids'):
             parameters['reference_id'] = entities['ids'][0]
+
+        # Handle name entities for KYC
+        if entities.get('names'):
+            full_name = entities['names'][0]
+            name_parts = full_name.split(' ', 1)
+            parameters['given_name'] = name_parts[0]
+            if len(name_parts) > 1:
+                parameters['family_name'] = name_parts[1]
+            else:
+                parameters['family_name'] = ""
+            parameters['full_name'] = full_name # Keep full name for general use
         
         # Intent-specific parameters
         if intent_type == 'fraud_detection':
@@ -380,12 +587,34 @@ class IntentClassifier:
         classification['validation'] = validation_result
         return classification
     
+    def classify_intent_sync(self, text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Synchronous wrapper for classify_intent for backward compatibility"""
+        return asyncio.run(self.classify_intent(text, context))
+    
     def get_classification_stats(self) -> Dict[str, Any]:
         """Get classifier statistics and health information"""
-        return {
-            'semantic_analyzer_available': hasattr(self, 'semantic_analyzer'),
-            'pattern_matcher_available': hasattr(self, 'pattern_matcher'),
+        stats = {
+            'classification_mode': self.classification_mode,
+            'semantic_analyzer_available': hasattr(self, 'semantic_analyzer') and self.semantic_analyzer is not None,
+            'pattern_matcher_available': hasattr(self, 'pattern_matcher') and self.pattern_matcher is not None,
+            'llm_provider_available': hasattr(self, 'llm_provider') and self.llm_provider is not None and self.llm_provider.is_available(),
             'confidence_thresholds': self.confidence_thresholds,
             'weights': self.weights,
             'timestamp': datetime.utcnow().isoformat()
         }
+        
+        # Add LLM provider details if available
+        if hasattr(self, 'llm_provider') and self.llm_provider:
+            stats['llm_provider_type'] = 'groq'
+            stats['llm_model'] = getattr(self.llm_provider, 'model', 'unknown')
+        
+        return stats
+    
+    def get_available_modes(self) -> List[str]:
+        """Get list of available classification modes based on initialized components"""
+        modes = ['pattern']  # Always available
+        
+        if hasattr(self, 'llm_provider') and self.llm_provider and self.llm_provider.is_available():
+            modes.extend(['llm', 'hybrid'])
+        
+        return modes

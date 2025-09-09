@@ -315,70 +315,48 @@ class LangGraphOrchestrator:
         """Execute an agent (mock implementation)"""
         start_time = datetime.utcnow()
         
-        # Simulate agent execution time
-        execution_time = 1000 + (hash(agent_id) % 2000)  # 1-3 seconds
-        await asyncio.sleep(execution_time / 1000)
-        
-        # Mock result based on capability type
-        mock_result = self._generate_mock_agent_result(capability_type, workflow_state)
-        
+        agent = self.resource_registry.get_agent(agent_id)
+        if not agent:
+            raise ValueError(f"Agent not found in registry: {agent_id}")
+
+        # Prepare input data for the agent
+        agent_input_data = {}
+        if capability_type == "identity_verification":
+            # Construct verification_data for KYCMatchAgent
+            verification_data = {
+                "given_name": workflow_state.input_data.get("given_name"),
+                "family_name": workflow_state.input_data.get("family_name"),
+                "name": workflow_state.input_data.get("full_name"), # Use full_name if available
+                # Add other relevant fields if available in workflow_state.input_data
+            }
+            # Filter out empty values
+            verification_data = {k: v for k, v in verification_data.items() if v}
+
+            agent_input_data = {
+                "phone_number": workflow_state.input_data.get("phone_number"),
+                "verification_data": verification_data
+            }
+        else:
+            # For other capabilities, pass the raw input data for now
+            agent_input_data = workflow_state.input_data
+
+        # Execute the agent's capability
+        result_data = await agent.execute_capability(capability_type, agent_input_data)
+
         end_time = datetime.utcnow()
         actual_execution_time = int((end_time - start_time).total_seconds() * 1000)
-        
+
         return AgentResult(
             agent_id=agent_id,
             capability_type=capability_type,
             status=StepStatus.COMPLETED,
-            result=mock_result,
+            result=result_data,
             execution_time_ms=actual_execution_time,
-            confidence=0.8 + (hash(agent_id) % 20) / 100,  # 0.8-1.0
+            confidence=result_data.get("confidence", 0.9),
             timestamp=end_time
         )
     
-    def _generate_mock_agent_result(self, capability_type: str, 
-                                  workflow_state: WorkflowState) -> Dict[str, Any]:
-        """Generate mock results for different agent types"""
-        
-        customer_id = workflow_state.input_data.get('customer_id', '12345')
-        
-        if capability_type == 'fraud_detection':
-            risk_score = 0.3 + (hash(customer_id) % 70) / 100  # 0.3-1.0
-            workflow_state.risk_score = max(workflow_state.risk_score, risk_score)
-            
-            return {
-                'risk_score': risk_score,
-                'risk_factors': ['unusual_location', 'high_amount'] if risk_score > 0.7 else ['none'],
-                'recommended_action': 'block' if risk_score > 0.8 else 'review' if risk_score > 0.6 else 'allow'
-            }
-        
-        elif capability_type == 'device_verification':
-            return {
-                'device_verified': hash(customer_id) % 3 != 0,  # 67% success rate
-                'device_location': 'Lagos, Nigeria' if hash(customer_id) % 2 else 'London, UK',
-                'last_seen': datetime.utcnow().isoformat(),
-                'device_risk': 'low' if hash(customer_id) % 3 == 0 else 'medium'
-            }
-        
-        elif capability_type == 'sim_swap_detection':
-            swap_detected = hash(customer_id) % 4 == 0  # 25% detection rate
-            return {
-                'swap_detected': swap_detected,
-                'swap_time': datetime.utcnow().isoformat() if swap_detected else None,
-                'confidence': 0.9 if swap_detected else 0.1,
-                'previous_location': 'Different country' if swap_detected else 'Same region'
-            }
-        
-        elif capability_type == 'kyc_verification':
-            verification_score = 0.5 + (hash(customer_id) % 50) / 100
-            return {
-                'verification_score': verification_score,
-                'documents_verified': verification_score > 0.7,
-                'identity_match': verification_score > 0.8,
-                'risk_indicators': [] if verification_score > 0.8 else ['document_quality', 'photo_match']
-            }
-        
-        else:
-            return {'status': 'completed', 'data': f'Result for {capability_type}'}
+    
     
     async def _make_decision(self, decision_config: Dict[str, Any], 
                            workflow_state: WorkflowState) -> Dict[str, Any]:
