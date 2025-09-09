@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "total_tests": 9,
+    "passed": 3,
+    "failed": 6,
+    "success_rate": 33.33333333333333,
+    "timestamp": "2025-09-09T08:44:41.237082"
+  },
+  "detailed_results": [
+    {
+      "test_name": "Health Checks",
+      "status": "PASS",
+      "details": "All tests passed",
+      "timestamp": "2025-09-09T08:44:38.772203"
+    },
+    {
+      "test_name": "TMF 921A API",
+      "status": "FAIL",
+      "details": "",
+      "timestamp": "2025-09-09T08:44:38.773847"
+    },
+    {
+      "test_name": "CAMARA APIs",
+      "status": "PASS",
+      "details": "All tests passed",
+      "timestamp": "2025-09-09T08:44:40.437134"
+    },
+    {
+      "test_name": "Intent Classification",
+      "status": "FAIL",
+      "details": "",
+      "timestamp": "2025-09-09T08:44:40.440354"
+    },
+    {
+      "test_name": "Agent Framework",
+      "status": "FAIL",
+      "details": "",
+      "timestamp": "2025-09-09T08:44:40.703876"
+    },
+    {
+      "test_name": "Workflow Orchestration",
+      "status": "FAIL",
+      "details": "",
+      "timestamp": "2025-09-09T08:44:40.707117"
+    },
+    {
+      "test_name": "WebSocket Chat",
+      "status": "FAIL",
+      "details": "",
+      "timestamp": "2025-09-09T08:44:40.966283"
+    },
+    {
+      "test_name": "Fraud Detection Flow",
+      "status": "FAIL",
+      "details": "",
+      "timestamp": "2025-09-09T08:44:40.968645"
+    },
+    {
+      "test_name": "Performance Tests",
+      "status": "PASS",
+      "details": "All tests passed",
+      "timestamp": "2025-09-09T08:44:41.236972"
+    }
+  ]
+}

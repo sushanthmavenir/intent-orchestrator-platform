@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+websockets
+pydantic
+sqlalchemy
+httpx
+python-multipart
+pyyaml
+aiofiles
+spacy
+langgraph
+langchain
+langchain-core

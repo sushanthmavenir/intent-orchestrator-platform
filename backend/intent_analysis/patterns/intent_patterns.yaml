@@ -1,0 +1,295 @@
+intent_patterns:
+  fraud_detection:
+    keywords:
+      - fraud
+      - suspicious
+      - scam
+      - unauthorized
+      - hack
+      - strange
+      - unusual
+      - fishy
+      - questionable
+    patterns:
+      - "check.*fraud"
+      - "suspicious.*activity"
+      - "unauthorized.*transaction"
+      - "strange.*behavior"
+      - "unusual.*pattern"
+    entities:
+      - customer_id
+      - phone_number
+      - amount
+      - transaction_id
+    confidence_boost: 0.3
+    priority: high
+    
+  transaction_monitoring:
+    keywords:
+      - transaction
+      - transfer
+      - payment
+      - money
+      - amount
+      - withdraw
+      - deposit
+      - purchase
+      - spend
+    patterns:
+      - "monitor.*transaction"
+      - "track.*payment"
+      - "watch.*transfer"
+      - "analyze.*spending"
+    entities:
+      - customer_id
+      - amount
+      - account_number
+      - merchant
+    confidence_boost: 0.2
+    priority: medium
+    
+  customer_verification:
+    keywords:
+      - verify
+      - check
+      - identity
+      - kyc
+      - customer
+      - account
+      - validate
+      - confirm
+      - authenticate
+    patterns:
+      - "verify.*identity"
+      - "check.*customer"
+      - "validate.*account"
+      - "kyc.*check"
+      - "authenticate.*user"
+    entities:
+      - customer_id
+      - document_id
+      - phone_number
+      - email
+    confidence_boost: 0.25
+    priority: medium
+    
+  service_assurance:
+    keywords:
+      - service
+      - network
+      - performance
+      - quality
+      - outage
+      - downtime
+      - connectivity
+      - speed
+      - latency
+    patterns:
+      - "service.*quality"
+      - "network.*performance"
+      - "check.*connectivity"
+      - "monitor.*uptime"
+    entities:
+      - service_id
+      - location
+      - device_id
+      - bandwidth
+    confidence_boost: 0.2
+    priority: medium
+    
+  network_optimization:
+    keywords:
+      - optimize
+      - bandwidth
+      - latency
+      - throughput
+      - capacity
+      - coverage
+      - signal
+      - performance
+      - efficiency
+    patterns:
+      - "optimize.*network"
+      - "improve.*performance"
+      - "increase.*bandwidth"
+      - "reduce.*latency"
+    entities:
+      - location
+      - device_id
+      - bandwidth
+      - frequency
+    confidence_boost: 0.2
+    priority: low
+    
+  device_location:
+    keywords:
+      - location
+      - where
+      - gps
+      - position
+      - coordinates
+      - address
+      - place
+      - country
+      - city
+    patterns:
+      - "device.*location"
+      - "where.*device"
+      - "check.*location"
+      - "track.*position"
+    entities:
+      - device_id
+      - customer_id
+      - coordinates
+      - address
+    confidence_boost: 0.3
+    priority: medium
+    
+  sim_swap_detection:
+    keywords:
+      - sim
+      - swap
+      - change
+      - replace
+      - switch
+      - card
+      - device
+      - phone
+    patterns:
+      - "sim.*swap"
+      - "device.*change"
+      - "phone.*switch"
+      - "card.*replace"
+    entities:
+      - phone_number
+      - device_id
+      - customer_id
+      - imsi
+    confidence_boost: 0.4
+    priority: high
+    
+  scam_detection:
+    keywords:
+      - scam
+      - phishing
+      - social engineering
+      - manipulation
+      - urgent
+      - emergency
+      - caller
+      - suspicious call
+    patterns:
+      - "scam.*call"
+      - "phishing.*attempt"
+      - "social.*engineering"
+      - "suspicious.*caller"
+    entities:
+      - phone_number
+      - customer_id
+      - caller_id
+      - call_duration
+    confidence_boost: 0.4
+    priority: high
+
+entity_patterns:
+  customer_id:
+    patterns:
+      - "customer\\s+(?:id\\s+)?([A-Za-z0-9]{6,15})"
+      - "account\\s+(?:number\\s+)?([A-Za-z0-9]{6,15})"
+      - "user\\s+(?:id\\s+)?([A-Za-z0-9]{6,15})"
+      - "\\b([A-Za-z0-9]{8,12})\\b"
+    validation:
+      min_length: 6
+      max_length: 15
+      
+  phone_number:
+    patterns:
+      - "\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b"
+      - "\\+\\d{1,3}[-.]?\\d{1,14}\\b"
+      - "\\b\\d{10,15}\\b"
+    validation:
+      min_length: 10
+      max_length: 15
+      
+  amount:
+    patterns:
+      - "\\$[\\d,]+\\.?\\d*"
+      - "USD\\s*[\\d,]+\\.?\\d*"
+      - "\\b\\d+[\\s]?(?:dollars?|USD|euros?|EUR|pounds?|GBP)\\b"
+    validation:
+      min_value: 0
+      currency_symbols: ["$", "USD", "EUR", "GBP"]
+      
+  transaction_id:
+    patterns:
+      - "transaction\\s+(?:id\\s+)?([A-Za-z0-9]{10,20})"
+      - "txn\\s+(?:id\\s+)?([A-Za-z0-9]{10,20})"
+      - "reference\\s+(?:number\\s+)?([A-Za-z0-9]{10,20})"
+    validation:
+      min_length: 10
+      max_length: 20
+      
+  device_id:
+    patterns:
+      - "device\\s+(?:id\\s+)?([A-Za-z0-9]{8,20})"
+      - "imei\\s+([A-Za-z0-9]{15})"
+      - "serial\\s+(?:number\\s+)?([A-Za-z0-9]{8,20})"
+    validation:
+      min_length: 8
+      max_length: 20
+
+urgency_indicators:
+  high:
+    - urgent
+    - emergency
+    - critical
+    - asap
+    - immediately
+    - now
+    - priority
+    - important
+    - escalate
+  medium:
+    - soon
+    - quickly
+    - fast
+    - prompt
+    - timely
+  low:
+    - when possible
+    - convenient
+    - later
+    - eventually
+    - routine
+
+confidence_thresholds:
+  minimum: 0.3
+  medium: 0.6
+  high: 0.8
+
+intent_mapping:
+  # Map detected intents to TMF 921A expression types
+  fraud_detection:
+    expression_type: "fraud_analysis_intent"
+    required_entities: ["customer_id"]
+    optional_entities: ["phone_number", "amount", "transaction_id"]
+    
+  transaction_monitoring:
+    expression_type: "transaction_monitoring_intent"
+    required_entities: ["customer_id"]
+    optional_entities: ["amount", "account_number"]
+    
+  customer_verification:
+    expression_type: "identity_verification_intent"
+    required_entities: ["customer_id"]
+    optional_entities: ["phone_number", "document_id"]
+    
+  service_assurance:
+    expression_type: "service_quality_intent"
+    required_entities: []
+    optional_entities: ["service_id", "location"]
+    
+  network_optimization:
+    expression_type: "network_optimization_intent"
+    required_entities: []
+    optional_entities: ["location", "bandwidth"]

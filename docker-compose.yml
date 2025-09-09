@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  # Main Intent Orchestration Platform
+  intent-platform:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: intent-orchestrator
+    ports:
+      - "8000:8000"  # Main FastAPI backend
+      - "8001:8001"  # CAMARA Mock APIs
+      - "3000:3000"  # React frontend (development)
+    environment:
+      - PYTHONPATH=/app/backend
+      - PYTHONUNBUFFERED=1
+      - NODE_ENV=development
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - intent_data:/app/platform_data
+    networks:
+      - intent-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Redis for caching and session management (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: intent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - intent-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # PostgreSQL for production database (alternative to SQLite)
+  postgres:
+    image: postgres:15-alpine
+    container_name: intent-postgres
+    environment:
+      POSTGRES_DB: intent_orchestrator
+      POSTGRES_USER: intent_user
+      POSTGRES_PASSWORD: intent_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - intent-network
+    restart: unless-stopped
+
+  # Nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: intent-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+      - ./frontend/build:/usr/share/nginx/html
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - intent-platform
+    networks:
+      - intent-network
+    restart: unless-stopped
+
+  # Monitoring with Prometheus (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: intent-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - intent-network
+    restart: unless-stopped
+
+  # Grafana for monitoring dashboards (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: intent-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana-dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - intent-network
+    restart: unless-stopped
+
+networks:
+  intent-network:
+    driver: bridge
+    name: intent-orchestrator-network
+
+volumes:
+  intent_data:
+    name: intent-platform-data
+  redis_data:
+    name: intent-redis-data
+  postgres_data:
+    name: intent-postgres-data
+  prometheus_data:
+    name: intent-prometheus-data
+  grafana_data:
+    name: intent-grafana-data
+  nginx_logs:
+    name: intent-nginx-logs

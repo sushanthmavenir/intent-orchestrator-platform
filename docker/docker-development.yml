@@ -1,0 +1,77 @@
+# Development Docker Compose Configuration
+# Simplified setup for local development with hot reloading
+
+version: '3.8'
+
+services:
+  # Main Intent Orchestration Platform (Development Mode)
+  intent-platform-dev:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: intent-orchestrator-dev
+    ports:
+      - "8000:8000"  # Main FastAPI backend
+      - "8001:8001"  # CAMARA Mock APIs
+      - "3000:3000"  # React frontend
+    environment:
+      - PYTHONPATH=/app/backend
+      - PYTHONUNBUFFERED=1
+      - NODE_ENV=development
+      - RELOAD=true
+    volumes:
+      # Mount source code for hot reloading
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      - ./demo:/app/demo
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - intent-dev-network
+    restart: unless-stopped
+    command: >
+      bash -c "
+        echo '🚀 Starting development environment...' &&
+        cd /app/backend &&
+        python -m uvicorn camara_apis.main:app --host 0.0.0.0 --port 8001 --reload &
+        python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
+        cd /app/frontend &&
+        npm start &
+        echo '✅ All services started in development mode' &&
+        tail -f /dev/null
+      "
+
+  # Redis for caching (lightweight for development)
+  redis-dev:
+    image: redis:7-alpine
+    container_name: intent-redis-dev
+    ports:
+      - "6379:6379"
+    networks:
+      - intent-dev-network
+    restart: unless-stopped
+
+  # SQLite browser for database inspection
+  sqlite-browser:
+    image: linuxserver/sqlitebrowser
+    container_name: sqlite-browser
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - ./data:/config/data
+    ports:
+      - "3001:3000"
+    networks:
+      - intent-dev-network
+    restart: unless-stopped
+
+networks:
+  intent-dev-network:
+    driver: bridge
+    name: intent-dev-network
+
+volumes:
+  dev_data:
+    name: intent-dev-data
