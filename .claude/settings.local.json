@@ -9,7 +9,8 @@
       "Bash(taskkill:*)",
       "Bash(git add:*)",
       "Bash(del:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

@@ -8,7 +8,6 @@ const API_BASE_URL = 'http://localhost:8002';
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [websocket, setWebsocket] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const [intentForm, setIntentForm] = useState({
     name: '',
@@ -19,12 +18,69 @@ function App() {
   });
   const [isSubmittingIntent, setIsSubmittingIntent] = useState(false);
   const messagesEndRef = useRef(null);
+  const websocketRef = useRef(null);
 
   useEffect(() => {
+    const connectWebSocket = () => {
+      if (websocketRef.current && (websocketRef.current.readyState === WebSocket.OPEN || websocketRef.current.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      setConnectionStatus('connecting');
+      const ws = new WebSocket(WEBSOCKET_URL);
+      websocketRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setConnectionStatus('connected');
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('WebSocket message:', data);
+
+        if (data.type === 'history') {
+          setMessages(data.messages || []);
+        } else if (data.type === 'connection') {
+          addSystemMessage(data.message);
+        } else if (data.type === 'processing_status') {
+          setMessages(prev => [...prev, { ...data, isProcessing: true }]);
+        } else if (data.type === 'intent_created') {
+          setMessages(prev => [...prev, { ...data, isIntentCreation: true }]);
+        } else if (data.type === 'workflow_starting') {
+          setMessages(prev => [...prev, { ...data, isWorkflowStatus: true }]);
+        } else if (data.type === 'workflow_completed') {
+          setMessages(prev => [...prev, { ...data, isWorkflowCompletion: true }]);
+        } else if (data.type === 'risk_assessment') {
+          setMessages(prev => [...prev, { ...data, isRiskAssessment: true }]);
+        } else if (data.type === 'recommendation') {
+          setMessages(prev => [...prev, { ...data, isRecommendation: true }]);
+        } else if (data.type === 'error' || data.type === 'workflow_error') {
+          setMessages(prev => [...prev, { ...data, isError: true }]);
+        } else {
+          setMessages(prev => [...prev, data]);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setConnectionStatus('disconnected');
+        // Automatically attempt to reconnect
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        ws.close(); // This will trigger the onclose handler and reconnection logic
+      };
+    };
+
     connectWebSocket();
+
     return () => {
-      if (websocket && websocket.readyState !== WebSocket.CLOSED) {
-        websocket.close();
+      if (websocketRef.current) {
+        websocketRef.current.onclose = null; // Prevent reconnection attempts on component unmount
+        websocketRef.current.close();
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -32,79 +88,6 @@ function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  const connectWebSocket = () => {
-    // Prevent duplicate connections
-    if (websocket && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
-      return;
-    }
-    
-    // Close existing connection if it exists and not already closed
-    if (websocket && websocket.readyState !== WebSocket.CLOSED) {
-      websocket.close();
-    }
-    
-    setConnectionStatus('connecting');
-    const ws = new WebSocket(WEBSOCKET_URL);
-
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setConnectionStatus('connected');
-      setWebsocket(ws);
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      console.log('WebSocket message:', data);
-      
-      if (data.type === 'history') {
-        setMessages(data.messages || []);
-      } else if (data.type === 'connection') {
-        addSystemMessage(data.message);
-      } else if (data.type === 'processing_status') {
-        // Show processing status with special styling
-        setMessages(prev => [...prev, { ...data, isProcessing: true }]);
-      } else if (data.type === 'intent_created') {
-        // Show intent creation with analysis info
-        setMessages(prev => [...prev, { ...data, isIntentCreation: true }]);
-      } else if (data.type === 'workflow_starting') {
-        // Show workflow start status
-        setMessages(prev => [...prev, { ...data, isWorkflowStatus: true }]);
-      } else if (data.type === 'workflow_completed') {
-        // Show workflow completion with results
-        setMessages(prev => [...prev, { ...data, isWorkflowCompletion: true }]);
-      } else if (data.type === 'risk_assessment') {
-        // Show risk assessment with special styling
-        setMessages(prev => [...prev, { ...data, isRiskAssessment: true }]);
-      } else if (data.type === 'recommendation') {
-        // Show recommendations with special styling
-        setMessages(prev => [...prev, { ...data, isRecommendation: true }]);
-      } else if (data.type === 'error' || data.type === 'workflow_error') {
-        // Show errors with error styling
-        setMessages(prev => [...prev, { ...data, isError: true }]);
-      } else {
-        setMessages(prev => [...prev, data]);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setConnectionStatus('disconnected');
-      setWebsocket(null);
-      
-      // Attempt to reconnect after 3 seconds only if not already connecting
-      setTimeout(() => {
-        if (connectionStatus === 'disconnected') {
-          connectWebSocket();
-        }
-      }, 3000);
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setConnectionStatus('disconnected');
-    };
-  };
 
   const addSystemMessage = (content) => {
     const systemMessage = {
@@ -123,7 +106,7 @@ function App() {
   const sendMessage = (e) => {
     e.preventDefault();
     
-    if (!inputMessage.trim() || !websocket || connectionStatus !== 'connected') {
+    if (!inputMessage.trim() || !websocketRef.current || connectionStatus !== 'connected') {
       return;
     }
 
@@ -133,7 +116,7 @@ function App() {
       user: 'User'
     };
 
-    websocket.send(JSON.stringify(message));
+    websocketRef.current.send(JSON.stringify(message));
     setInputMessage('');
   };
 
@@ -172,13 +155,13 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/tmf-api/intent/v4/intent`, intentPayload);
       
       // Notify via WebSocket
-      if (websocket && connectionStatus === 'connected') {
+      if (websocketRef.current && connectionStatus === 'connected') {
         const intentMessage = {
           type: 'intent_submission',
           intent_data: response.data,
           user: 'User'
         };
-        websocket.send(JSON.stringify(intentMessage));
+        websocketRef.current.send(JSON.stringify(intentMessage));
       }
 
       // Reset form
